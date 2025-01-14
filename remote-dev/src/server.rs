@@ -1,10 +1,10 @@
 use std::{collections::HashMap, io::Write};
 
 use axum::{
-    Json, Router,
     body::Bytes,
     response::IntoResponse,
     routing::{get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ async fn root() -> &'static str {
     "Hello, World!"
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct FileUploadRequest {
     pub name: String,
     pub bytes: Vec<u8>,
