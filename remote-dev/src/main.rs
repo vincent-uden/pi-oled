@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use axum::{
     Json, Router,
     http::StatusCode,
@@ -26,6 +28,8 @@ enum Commands {
     Client {
         #[arg(short, long)]
         url: String,
+        #[arg(short, long)]
+        file: PathBuf,
     },
 }
 
@@ -35,6 +39,6 @@ async fn main() {
 
     match cli.command {
         Commands::Server { port } => server_main(port).await,
-        Commands::Client { url } => client_main(url).await,
+        Commands::Client { url, file } => client_main(url, &file).await,
     }
 }
