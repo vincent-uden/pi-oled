@@ -95,9 +95,13 @@ impl Display {
         Ok(())
     }
 
-    pub fn draw_pixel(&mut self, x: u8, y: u8, color: u8) {
-        let index = x as usize + y as usize * self.width as usize;
-        self.buffer[index] = color;
+    pub fn draw_pixel(&mut self, x: u8, y: u8, color: bool) {
+        let index = x as usize + (y / 8) as usize * self.width as usize;
+        if color {
+            self.buffer[index] |= 1 << (y % 8);
+        } else {
+            self.buffer[index] &= !(1 << (y % 8));
+        }
     }
 
     pub fn width(&self) -> u8 {

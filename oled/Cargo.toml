@@ -5,4 +5,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
+bitmap-font = "0.3.0"
+embedded-graphics = "0.8.1"
 rppal = "0.22.1"

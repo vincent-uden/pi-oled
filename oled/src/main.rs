@@ -38,8 +38,8 @@ fn main() {
         }
 
         for i in 0..device.display.width() {
-            for j in 0..(device.display.height() / 8) {
-                device.display.draw_pixel(i, j, 2_u8.pow((i % 8) as u32));
+            for j in 0..(device.display.height()) {
+                device.display.draw_pixel(i, j, true);
             }
         }
         device.display.render().unwrap();
