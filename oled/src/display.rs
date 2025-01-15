@@ -1,6 +1,10 @@
 use std::{thread::sleep, time::Duration};
 
 use anyhow::Result;
+use embedded_graphics::{
+    pixelcolor::{BinaryColor, Gray2},
+    prelude::{DrawTarget, GrayColor, OriginDimensions, Size},
+};
 use rppal::{
     gpio::{Gpio, OutputPin},
     spi::Spi,
@@ -100,7 +104,7 @@ impl Display {
         if color {
             self.buffer[index] |= 1 << (y % 8);
         } else {
-            self.buffer[index] &= !(1 << (y % 8));
+            //self.buffer[index] &= !(1 << (y % 8));
         }
     }
 
@@ -110,5 +114,29 @@ impl Display {
 
     pub fn height(&self) -> u8 {
         self.height
+    }
+}
+
+impl OriginDimensions for Display {
+    fn size(&self) -> Size {
+        Size {
+            width: self.width as u32,
+            height: self.height as u32,
+        }
+    }
+}
+
+impl DrawTarget for Display {
+    type Color = BinaryColor;
+    type Error = core::convert::Infallible;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> std::result::Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = embedded_graphics::Pixel<Self::Color>>,
+    {
+        for pixel in pixels {
+            self.draw_pixel(pixel.0.x as u8, pixel.0.y as u8, pixel.1 == BinaryColor::On);
+        }
+        Ok(())
     }
 }

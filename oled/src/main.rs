@@ -6,8 +6,13 @@ mod buttons;
 mod display;
 mod joystick;
 
+use bitmap_font::{
+    tamzen::{FONT_5x9, FONT_8x15},
+    TextStyle,
+};
 use buttons::{Button, Buttons};
 use display::Display;
+use embedded_graphics::{pixelcolor::BinaryColor, prelude::*, text::Text};
 use joystick::Joystick;
 
 pub struct Device {
@@ -29,6 +34,12 @@ impl Device {
 fn main() {
     let mut device = Device::new().unwrap();
 
+    let text = Text::new(
+        "Hi",
+        Point::new(10, 10),
+        TextStyle::new(&FONT_5x9, BinaryColor::On),
+    );
+
     let mut running = true;
     while running {
         device.buttons.update().unwrap();
@@ -37,11 +48,8 @@ fn main() {
             running = false;
         }
 
-        for i in 0..device.display.width() {
-            for j in 0..(device.display.height()) {
-                device.display.draw_pixel(i, j, true);
-            }
-        }
+        text.draw(&mut device.display).unwrap();
+
         device.display.render().unwrap();
         sleep(Duration::from_millis(50));
     }
