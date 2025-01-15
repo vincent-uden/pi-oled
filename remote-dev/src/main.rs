@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
 use axum::{
-    Json, Router,
     http::StatusCode,
     routing::{get, post},
+    Json, Router,
 };
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use client::client_main;
 use server::server_main;
+use strum::EnumString;
 
 mod client;
 mod server;
@@ -28,8 +29,24 @@ enum Commands {
     Client {
         #[arg(short, long)]
         url: String,
+        #[command(subcommand)]
+        command: ClientCommand,
+    },
+}
+
+#[derive(Subcommand, Clone, EnumString)]
+enum ClientCommand {
+    Upload {
         #[arg(short, long)]
         file: PathBuf,
+    },
+    Execute {
+        #[arg(short, long)]
+        file: PathBuf,
+    },
+    Kill {
+        #[arg(short, long)]
+        pid: u32,
     },
 }
 
@@ -39,6 +56,6 @@ async fn main() {
 
     match cli.command {
         Commands::Server { port } => server_main(port).await,
-        Commands::Client { url, file } => client_main(url, &file).await,
+        Commands::Client { url, command } => client_main(url, command).await,
     }
 }
