@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{ffi::OsStr, path::Path};
 
 use reqwest::{Response, StatusCode};
 
@@ -34,12 +34,16 @@ async fn upload_binary(url: String, file: &Path) -> Result<Response, Box<dyn std
     let bytes = std::fs::read(file)?;
 
     let metadata = FileUploadRequest {
-        name: "example.dat".to_string(),
+        name: file
+            .file_name()
+            .unwrap_or(OsStr::new("uploaded_file"))
+            .to_string_lossy()
+            .to_string(),
         bytes,
     };
 
     println!("Sending request to {} upload", url);
-    println!("File name: {:#?}", metadata);
+    println!("File name: {:#?}", metadata.name);
 
     Ok(client.post(&url).json(&metadata).send().await?)
 }

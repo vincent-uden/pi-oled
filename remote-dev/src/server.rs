@@ -1,7 +1,10 @@
-use std::{collections::HashMap, io::Write, path::PathBuf, process::Command};
+use std::{
+    collections::HashMap, fs, io::Write, os::unix::fs::PermissionsExt as _, path::PathBuf,
+    process::Command,
+};
 
 use axum::{
-    extract::Query,
+    extract::{DefaultBodyLimit, Query},
     response::{IntoResponse, Response, Result},
     routing::{get, post},
     Json, Router,
@@ -14,7 +17,8 @@ pub async fn server_main(port: u16) {
         .route("/", get(root))
         .route("/upload", post(upload_binary))
         .route("/execute", post(execute_binary))
-        .route("/kill", get(kill_pid));
+        .route("/kill", get(kill_pid))
+        .layer(DefaultBodyLimit::disable());
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
@@ -33,8 +37,12 @@ pub struct FileUploadRequest {
 }
 
 async fn upload_binary(Json(file_req): Json<FileUploadRequest>) -> impl IntoResponse {
-    let mut file = std::fs::File::create(file_req.name).unwrap();
+    let mut file = std::fs::File::create(&file_req.name).unwrap();
     file.write_all(&file_req.bytes).unwrap();
+
+    let mut permissions = std::fs::metadata(&file_req.name).unwrap().permissions();
+    permissions.set_mode(permissions.mode() | 0o111);
+    fs::set_permissions(&file_req.name, permissions).unwrap();
 
     "File uploaded successfully!"
 }
