@@ -1,4 +1,7 @@
-use std::{ffi::OsStr, path::Path};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use reqwest::{Response, StatusCode};
 
@@ -7,26 +10,33 @@ use crate::{
     ClientCommand,
 };
 
-pub async fn client_main(base_url: String, command: ClientCommand) {
+pub async fn client_main(
+    base_url: String,
+    command: ClientCommand,
+) -> Result<String, Box<dyn std::error::Error>> {
     let resp = match command {
         ClientCommand::Upload { file } => {
-            upload_binary(format!("{}/upload", base_url).to_string(), &file)
-                .await
-                .unwrap()
+            upload_binary(format!("{}/upload", base_url).to_string(), &file).await?
         }
         ClientCommand::Execute { file } => {
-            execute_binary(format!("{}/execute", base_url).to_string(), &file)
-                .await
-                .unwrap()
+            execute_binary(format!("{}/execute", base_url).to_string(), &file).await?
         }
         ClientCommand::Kill { pid } => {
-            kill_pid(format!("{}/kill/{}", base_url, pid).to_string(), pid)
-                .await
-                .unwrap()
+            kill_pid(format!("{}/kill/{}", base_url, pid).to_string(), pid).await?
+        }
+        ClientCommand::Run { file } => {
+            let run_path = PathBuf::from(&format!(
+                "./{}",
+                file.file_name().unwrap().to_str().unwrap()
+            ));
+            upload_binary(format!("{}/upload", base_url).to_string(), &file).await?;
+            execute_binary(format!("{}/execute", base_url).to_string(), &run_path).await?
         }
     };
 
     println!("Response: {:#?}", resp);
+
+    Ok("Success!".to_string())
 }
 
 async fn upload_binary(url: String, file: &Path) -> Result<Response, Box<dyn std::error::Error>> {

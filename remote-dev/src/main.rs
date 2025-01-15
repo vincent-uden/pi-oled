@@ -44,6 +44,10 @@ enum ClientCommand {
         #[arg(short, long)]
         file: PathBuf,
     },
+    Run {
+        #[arg(short, long)]
+        file: PathBuf,
+    },
     Kill {
         #[arg(short, long)]
         pid: u32,
@@ -56,6 +60,9 @@ async fn main() {
 
     match cli.command {
         Commands::Server { port } => server_main(port).await,
-        Commands::Client { url, command } => client_main(url, command).await,
+        Commands::Client { url, command } => match client_main(url, command).await {
+            Ok(s) => println!("{}", s),
+            Err(e) => println!("Error: {}", e),
+        },
     }
 }
