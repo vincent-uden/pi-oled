@@ -28,7 +28,6 @@ impl Device {
 
 fn main() {
     let mut device = Device::new().unwrap();
-    device.display.render().unwrap();
 
     let mut running = true;
     while running {
@@ -37,7 +36,14 @@ fn main() {
         if device.buttons.is_button_pressed(Button::B3) {
             running = false;
         }
-        sleep(Duration::from_millis(100));
+
+        for i in 0..device.display.width() {
+            for j in 0..(device.display.height() / 8) {
+                device.display.draw_pixel(i, j, 2_u8.pow((i % 8) as u32));
+            }
+        }
+        device.display.render().unwrap();
+        sleep(Duration::from_millis(50));
     }
 
     println!("Device initialized!");

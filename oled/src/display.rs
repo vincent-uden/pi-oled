@@ -43,7 +43,7 @@ impl Display {
             dc_pin,
             cs_pin,
             bl_pin,
-            buffer: vec![0xFF; width as usize * height as usize],
+            buffer: vec![0x00; width as usize * ((height / 8) as usize)],
         };
 
         out.reset();
@@ -78,6 +78,7 @@ impl Display {
         sleep(Duration::from_millis(100));
     }
 
+    /// Each byte represents 8 pixels (stacked vertically) on the screen
     pub fn render(&mut self) -> Result<()> {
         for page in 0..8 {
             self.write_command(&[0xB0 + page])?;
@@ -85,12 +86,25 @@ impl Display {
             self.write_command(&[0x10])?;
             sleep(Duration::from_millis(10));
             self.dc_pin.set_high();
-            for index in 0..=(self.width as usize) {
+            for index in 0..(self.width as usize) {
                 let byte = self.buffer[index + self.width as usize * page as usize];
                 self.bus.write(&[byte])?;
             }
         }
 
         Ok(())
+    }
+
+    pub fn draw_pixel(&mut self, x: u8, y: u8, color: u8) {
+        let index = x as usize + y as usize * self.width as usize;
+        self.buffer[index] = color;
+    }
+
+    pub fn width(&self) -> u8 {
+        self.width
+    }
+
+    pub fn height(&self) -> u8 {
+        self.height
     }
 }
