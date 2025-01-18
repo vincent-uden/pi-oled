@@ -12,6 +12,7 @@ use rppal::{
 
 const BUS_CLK_SPEED: u32 = 8_000_000;
 
+// TODO: Turn screen off on drop
 #[derive(Debug)]
 pub struct Display {
     width: i32,
@@ -104,7 +105,7 @@ impl Display {
         if color {
             self.buffer[index] |= 1 << (y % 8);
         } else {
-            //self.buffer[index] &= !(1 << (y % 8));
+            self.buffer[index] &= !(1 << (y % 8));
         }
     }
 
@@ -114,6 +115,14 @@ impl Display {
                 BinaryColor::On => 0xFF,
                 BinaryColor::Off => 0x00,
             };
+        }
+    }
+
+    pub fn draw_rect(&mut self, x: u8, y: u8, width: u8, height: u8, color: BinaryColor) {
+        for i in 0..width {
+            for j in 0..height {
+                self.draw_pixel(x + i, y + j, color == BinaryColor::On);
+            }
         }
     }
 
