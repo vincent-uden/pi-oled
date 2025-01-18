@@ -14,8 +14,8 @@ const BUS_CLK_SPEED: u32 = 8_000_000;
 
 #[derive(Debug)]
 pub struct Display {
-    width: u8,
-    height: u8,
+    width: i32,
+    height: i32,
     bus: Spi,
     rst_pin: OutputPin,
     dc_pin: OutputPin,
@@ -25,7 +25,7 @@ pub struct Display {
 }
 
 impl Display {
-    pub fn pi_zero_2_w(width: u8, height: u8) -> Result<Self> {
+    pub fn pi_zero_2_w(width: i32, height: i32) -> Result<Self> {
         let gpio = Gpio::new()?;
         let rst_pin = gpio.get(25)?.into_output();
         let dc_pin = gpio.get(24)?.into_output();
@@ -108,11 +108,20 @@ impl Display {
         }
     }
 
-    pub fn width(&self) -> u8 {
+    pub fn fill(&mut self, color: BinaryColor) {
+        for byte in self.buffer.iter_mut() {
+            *byte = match color {
+                BinaryColor::On => 0xFF,
+                BinaryColor::Off => 0x00,
+            };
+        }
+    }
+
+    pub fn width(&self) -> i32 {
         self.width
     }
 
-    pub fn height(&self) -> u8 {
+    pub fn height(&self) -> i32 {
         self.height
     }
 }

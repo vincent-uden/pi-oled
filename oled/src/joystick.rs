@@ -7,9 +7,12 @@ pub struct Joystick {
     left_pin: InputPin,
     right_pin: InputPin,
     click_pin: InputPin,
+
+    last_state: State,
+    just_switched: bool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum State {
     Up,
     Down,
@@ -35,10 +38,12 @@ impl Joystick {
             left_pin,
             right_pin,
             click_pin,
+            last_state: State::Neutral,
+            just_switched: false,
         })
     }
 
-    pub fn read(&mut self) -> Result<State> {
+    fn read(&mut self) -> Result<State> {
         if self.up_pin.read() == Level::Low {
             return Ok(State::Up);
         }
@@ -56,5 +61,20 @@ impl Joystick {
         }
 
         Ok(State::Neutral)
+    }
+
+    pub fn update(&mut self) -> Result<State> {
+        let new_state = self.read()?;
+        if new_state != self.last_state {
+            self.just_switched = true;
+        } else {
+            self.just_switched = false;
+        }
+        self.last_state = new_state;
+        Ok(new_state)
+    }
+
+    pub fn just_switched_to(&self, state: State) -> bool {
+        self.just_switched && self.last_state == state
     }
 }
