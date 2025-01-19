@@ -7,6 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Result};
 
+mod bluetooth;
 mod buttons;
 mod display;
 mod joystick;
@@ -15,6 +16,7 @@ use bitmap_font::{
     tamzen::{FONT_5x9, FONT_8x15},
     TextStyle,
 };
+use bluetooth::{BluetoothEvent, BluetoothManager};
 use buttons::{Button, Buttons};
 use display::Display;
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*, text::Text};
@@ -22,6 +24,7 @@ use joystick::Joystick;
 use local_ip_address::local_ip;
 
 use dotenv::dotenv;
+use tokio::sync::Mutex;
 
 #[derive(Debug)]
 pub enum Tab {
@@ -30,7 +33,7 @@ pub enum Tab {
     Bluetooth,
 }
 
-pub struct Device {
+pub struct State {
     pub display: Display,
     pub joystick: Joystick,
     pub buttons: Buttons,
@@ -59,7 +62,7 @@ fn files_in_dir(dir: &Path) -> Vec<PathBuf> {
     files
 }
 
-impl Device {
+impl State {
     pub fn new(audio_dir: String) -> Result<Self> {
         let audio_dir = PathBuf::from(audio_dir);
         if !audio_dir.exists() {
@@ -229,18 +232,48 @@ impl Device {
                 self.file_scroll = 0;
             }
         }
-        println!("Scroll: {} Cursor: {}", self.file_scroll, self.file_cursor)
     }
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> Result<()> {
     dotenv().ok();
     let audio_dir =
         std::env::var("AUDIO_DIR").expect("The AUDIO_DIR environment variable has to be set");
 
-    let mut device = Device::new(audio_dir).unwrap();
+    let mut device = State::new(audio_dir).unwrap();
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<BluetoothEvent>(10);
+    let (tx2, mut rx2) = tokio::sync::mpsc::channel::<String>(10);
+
+    let bluetooth_task = tokio::spawn(async move {
+        let mut bluetooth_manager = BluetoothManager::new(tx, tx2).await.unwrap();
+        bluetooth_manager.start_scan().await?;
+
+        loop {
+            bluetooth_manager.get_devices().await?;
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+
+        #[allow(unreachable_code)]
+        Ok::<(), anyhow::Error>(())
+    });
 
     while device.running {
+        while let Ok(event) = rx2.try_recv() {
+            println!("Event: {:#?}", event);
+        }
+
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                BluetoothEvent::Scan(devices) => {
+                    println!("Scanning for devices: {:#?}", devices);
+                    for device in devices {
+                        println!("Device: {:#?}", device);
+                    }
+                }
+            }
+        }
         // TODO: Move to a diff-based rendering to avoid unnecessary pixel updates
         device.display.fill(BinaryColor::Off);
         device.update();
@@ -251,5 +284,8 @@ fn main() {
         sleep(Duration::from_millis(50));
     }
 
+    bluetooth_task.abort();
+
     println!("Device initialized!");
+    Ok(())
 }

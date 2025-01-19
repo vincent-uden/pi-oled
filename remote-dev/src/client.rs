@@ -1,6 +1,7 @@
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use reqwest::{Response, StatusCode};
@@ -73,5 +74,9 @@ async fn execute_binary(url: String, file: &Path) -> Result<Response, Box<dyn st
 
 async fn kill_pid(url: String, pid: u32) -> Result<Response, Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
-    Ok(client.post(format!("{}/{}", url, pid)).send().await?)
+    Ok(client
+        .post(format!("{}/{}", url, pid))
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await?)
 }
