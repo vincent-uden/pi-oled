@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     net::IpAddr,
     path::{Path, PathBuf},
     thread::sleep,
@@ -12,11 +13,8 @@ mod buttons;
 mod display;
 mod joystick;
 
-use bitmap_font::{
-    tamzen::{FONT_5x9, FONT_8x15},
-    TextStyle,
-};
-use bluetooth::{BluetoothEvent, BluetoothManager};
+use bitmap_font::{tamzen::FONT_5x9, TextStyle};
+use bluetooth::{BluetoothEvent, BluetoothManager, BluetoothRequest, Device};
 use buttons::{Button, Buttons};
 use display::Display;
 use embedded_graphics::{pixelcolor::BinaryColor, prelude::*, text::Text};
@@ -24,7 +22,14 @@ use joystick::Joystick;
 use local_ip_address::local_ip;
 
 use dotenv::dotenv;
-use tokio::sync::Mutex;
+use macaddr::MacAddr6;
+use tokio::process::Command;
+
+// TODO: Manage to connect with just bluetoothctl. As per http://www.adammil.net/blog/v137_Creating_a_Bluetooth_music_player_with_a_Raspberry_Pi_Zero_2_W.html
+// the bluetooth and wifi are probably messing with each other. Can I finish the program
+// regardless?
+//
+// TODO: Set the default sink after connecting to the device
 
 #[derive(Debug)]
 pub enum Tab {
@@ -37,6 +42,7 @@ pub struct State {
     pub display: Display,
     pub joystick: Joystick,
     pub buttons: Buttons,
+    pub devices: Vec<Device>,
     open_tab: Tab,
     ip: IpAddr,
     audio_files: Vec<PathBuf>,
@@ -48,6 +54,9 @@ pub struct State {
     running: bool,
     max_files: i32,
     max_len: usize,
+    bt_scroll: i32,
+    bt_cursor: i32,
+    bt_channel: tokio::sync::mpsc::Sender<BluetoothRequest>,
 }
 
 fn files_in_dir(dir: &Path) -> Vec<PathBuf> {
@@ -63,7 +72,10 @@ fn files_in_dir(dir: &Path) -> Vec<PathBuf> {
 }
 
 impl State {
-    pub fn new(audio_dir: String) -> Result<Self> {
+    pub fn new(
+        audio_dir: String,
+        bt_channel: tokio::sync::mpsc::Sender<BluetoothRequest>,
+    ) -> Result<Self> {
         let audio_dir = PathBuf::from(audio_dir);
         if !audio_dir.exists() {
             return Err(anyhow!("Audio directory does not exist"));
@@ -81,6 +93,7 @@ impl State {
             joystick: Joystick::pi_zero_2_w()?,
             buttons: Buttons::pi_zero_2_w()?,
             open_tab: Tab::Files,
+            devices: Vec::new(),
             ip: local_ip()?,
             audio_files: files_in_dir(&audio_dir),
             audio_dir,
@@ -91,6 +104,9 @@ impl State {
             running: true,
             max_files,
             max_len,
+            bt_scroll: 0,
+            bt_cursor: 0,
+            bt_channel,
         })
     }
 
@@ -169,14 +185,39 @@ impl State {
         ip_text.draw(&mut self.display).unwrap();
     }
 
-    fn draw_bluetooth_tab(&mut self) {}
+    fn draw_bluetooth_tab(&mut self) {
+        for (i, device) in self.devices.iter().enumerate() {
+            if (i as i32) >= self.bt_scroll && (i as i32) < self.bt_scroll + self.max_files {
+                let text_color = if self.bt_cursor == i as i32 {
+                    BinaryColor::Off
+                } else {
+                    BinaryColor::On
+                };
+                if self.bt_cursor == i as i32 {
+                    self.display.draw_rect(
+                        0,
+                        (10 + (i as i32 - self.bt_scroll) * self.font_height) as u8,
+                        self.display.width() as u8,
+                        self.font_height as u8,
+                        BinaryColor::On,
+                    );
+                }
+                let text = Text::new(
+                    &device.name,
+                    Point::new(0, 10 + (i as i32 * self.font_height)),
+                    TextStyle::new(&FONT_5x9, text_color),
+                );
+                text.draw(&mut self.display).unwrap();
+            }
+        }
+    }
 
-    pub fn update(&mut self) {
+    pub async fn update(&mut self) -> Result<()> {
         self.buttons.update().unwrap();
         self.joystick.update().unwrap();
         if self.buttons.is_button_pressed(Button::B3) {
             self.running = false;
-            return;
+            return Ok(());
         }
         match self.open_tab {
             Tab::Files => {
@@ -209,8 +250,23 @@ impl State {
                 if self.joystick.just_switched_to(joystick::State::Right) {
                     self.open_tab = Tab::Files;
                 }
+                if self.joystick.just_switched_to(joystick::State::Up) {
+                    self.move_bt_cursor(-1);
+                }
+                if self.joystick.just_switched_to(joystick::State::Down) {
+                    self.move_bt_cursor(1);
+                }
+                if self.buttons.is_button_pressed(Button::B1) {
+                    let device = &self.devices[self.bt_cursor as usize];
+                    println!("Sending Connecting to {}", device.name);
+                    self.bt_channel
+                        .send(BluetoothRequest::Connect(device.clone()))
+                        .await?;
+                }
             }
         }
+
+        Ok(())
     }
 
     fn move_file_cursor(&mut self, direction: i32) {
@@ -233,6 +289,89 @@ impl State {
             }
         }
     }
+
+    fn move_bt_cursor(&mut self, direction: i32) {
+        self.bt_cursor += direction;
+        if self.bt_cursor < 0 {
+            self.bt_cursor = 0;
+        }
+        if self.bt_cursor >= self.devices.len() as i32 {
+            self.bt_cursor = self.devices.len() as i32 - 1;
+        }
+        if self.bt_cursor + self.bt_scroll >= self.max_files {
+            self.bt_scroll += 1;
+            if self.bt_scroll >= self.devices.len() as i32 - self.max_files {
+                self.bt_scroll = self.devices.len() as i32 - self.max_files;
+            }
+        } else if self.bt_cursor <= self.bt_scroll {
+            self.bt_scroll -= 1;
+            if self.bt_scroll < 0 {
+                self.bt_scroll = 0;
+            }
+        }
+        println!("Scroll: {} Cursor: {}", self.bt_scroll, self.bt_cursor)
+    }
+
+    pub fn handle_bluetooth_event(&mut self, event: BluetoothEvent) {
+        println!("BT Event");
+        match event {
+            BluetoothEvent::Scan(results) => {
+                for result in results {
+                    if !self.has_discovered_device(result.addr) && !result.name.is_empty() {
+                        self.devices.push(Device::from(result));
+                    }
+                }
+            }
+        }
+    }
+
+    fn has_discovered_device(&self, addr: MacAddr6) -> bool {
+        self.devices.iter().any(|d| d.addr == addr)
+    }
+
+    async fn volume_up(&mut self) -> Result<()> {
+        Command::new("pactl")
+            .arg("set-sink-volume")
+            .arg("@DEFAULT_SINK@")
+            .arg("+5%")
+            .spawn()?
+            .wait()
+            .await?;
+        Ok(())
+    }
+
+    async fn volume_down(&mut self) -> Result<()> {
+        Command::new("pactl")
+            .arg("set-sink-volume")
+            .arg("@DEFAULT_SINK@")
+            .arg("-5%")
+            .spawn()?
+            .wait()
+            .await?;
+        Ok(())
+    }
+
+    async fn pause(&mut self) -> Result<()> {
+        Command::new("pactl")
+            .arg("suspend-sink")
+            .arg("@DEFAULT_SINK@")
+            .arg("1")
+            .spawn()?
+            .wait()
+            .await?;
+        Ok(())
+    }
+
+    async fn unpause(&mut self) -> Result<()> {
+        Command::new("pactl")
+            .arg("suspend-sink")
+            .arg("@DEFAULT_SINK@")
+            .arg("0")
+            .spawn()?
+            .wait()
+            .await?;
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -241,16 +380,18 @@ async fn main() -> Result<()> {
     let audio_dir =
         std::env::var("AUDIO_DIR").expect("The AUDIO_DIR environment variable has to be set");
 
-    let mut device = State::new(audio_dir).unwrap();
+    let (bt_tx, mut bt_rx) = tokio::sync::mpsc::channel::<BluetoothRequest>(10);
+    let mut state = State::new(audio_dir, bt_tx).unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<BluetoothEvent>(10);
     let (tx2, mut rx2) = tokio::sync::mpsc::channel::<String>(10);
 
     let bluetooth_task = tokio::spawn(async move {
-        let mut bluetooth_manager = BluetoothManager::new(tx, tx2).await.unwrap();
+        let mut bluetooth_manager = BluetoothManager::new(tx, tx2, bt_rx).await.unwrap();
         bluetooth_manager.start_scan().await?;
 
         loop {
+            bluetooth_manager.process_requests().await?;
             bluetooth_manager.get_devices().await?;
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
@@ -259,27 +400,20 @@ async fn main() -> Result<()> {
         Ok::<(), anyhow::Error>(())
     });
 
-    while device.running {
+    while state.running {
         while let Ok(event) = rx2.try_recv() {
-            println!("Event: {:#?}", event);
+            //println!("Event: {:#?}", event);
         }
 
         while let Ok(event) = rx.try_recv() {
-            match event {
-                BluetoothEvent::Scan(devices) => {
-                    println!("Scanning for devices: {:#?}", devices);
-                    for device in devices {
-                        println!("Device: {:#?}", device);
-                    }
-                }
-            }
+            state.handle_bluetooth_event(event);
         }
         // TODO: Move to a diff-based rendering to avoid unnecessary pixel updates
-        device.display.fill(BinaryColor::Off);
-        device.update();
+        state.display.fill(BinaryColor::Off);
+        state.update().await?;
 
-        device.draw();
-        device.display.render().unwrap();
+        state.draw();
+        state.display.render().unwrap();
 
         sleep(Duration::from_millis(50));
     }
