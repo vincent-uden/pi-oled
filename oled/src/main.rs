@@ -164,9 +164,14 @@ impl State {
                         BinaryColor::On,
                     );
                 }
-                let file_name = &file.file_name().unwrap().to_str().unwrap()[0..self.max_len];
+                let file_name = file.file_name().unwrap().to_str().unwrap();
+                let clipped = if file_name.len() > self.max_len {
+                    &file_name[0..self.max_len]
+                } else {
+                    file_name
+                };
                 let text = Text::new(
-                    file_name,
+                    clipped,
                     Point::new(0, 10 + (i as i32 - self.file_scroll) * self.font_height),
                     TextStyle::new(&FONT_5x9, text_color),
                 );
@@ -381,24 +386,25 @@ async fn main() -> Result<()> {
         std::env::var("AUDIO_DIR").expect("The AUDIO_DIR environment variable has to be set");
 
     let (bt_tx, mut bt_rx) = tokio::sync::mpsc::channel::<BluetoothRequest>(10);
+    println!("[DEBUG] Initalized state");
     let mut state = State::new(audio_dir, bt_tx).unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<BluetoothEvent>(10);
     let (tx2, mut rx2) = tokio::sync::mpsc::channel::<String>(10);
 
-    let bluetooth_task = tokio::spawn(async move {
-        let mut bluetooth_manager = BluetoothManager::new(tx, tx2, bt_rx).await.unwrap();
-        bluetooth_manager.start_scan().await?;
+    // let bluetooth_task = tokio::spawn(async move {
+    //     let mut bluetooth_manager = BluetoothManager::new(tx, tx2, bt_rx).await.unwrap();
+    //     bluetooth_manager.start_scan().await?;
 
-        loop {
-            bluetooth_manager.process_requests().await?;
-            bluetooth_manager.get_devices().await?;
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        }
+    //     loop {
+    //         bluetooth_manager.process_requests().await?;
+    //         bluetooth_manager.get_devices().await?;
+    //         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    //     }
 
-        #[allow(unreachable_code)]
-        Ok::<(), anyhow::Error>(())
-    });
+    //     #[allow(unreachable_code)]
+    //     Ok::<(), anyhow::Error>(())
+    // });
 
     while state.running {
         while let Ok(event) = rx2.try_recv() {
@@ -418,7 +424,7 @@ async fn main() -> Result<()> {
         sleep(Duration::from_millis(50));
     }
 
-    bluetooth_task.abort();
+    // bluetooth_task.abort();
 
     println!("Device initialized!");
     Ok(())

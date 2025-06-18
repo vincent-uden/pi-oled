@@ -1,5 +1,10 @@
 # Raspberry Pi Oled Screen
 
+## Running the setup script
+```sh
+wget -qO- https://raw.githubusercontent.com/vincent-uden/pi-oled/refs/heads/master/setup.sh | bash
+```
+
 ## Remote Development
 Example usage:
 ```sh
