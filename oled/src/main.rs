@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    io,
     net::IpAddr,
     path::{Path, PathBuf},
     thread::sleep,
@@ -24,11 +25,10 @@ use local_ip_address::local_ip;
 use dotenv::dotenv;
 use macaddr::MacAddr6;
 use tokio::process::Command;
+use tracing::{debug, info, Level};
+use tracing_log::log::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
-// TODO: Manage to connect with just bluetoothctl. As per http://www.adammil.net/blog/v137_Creating_a_Bluetooth_music_player_with_a_Raspberry_Pi_Zero_2_W.html
-// the bluetooth and wifi are probably messing with each other. Can I finish the program
-// regardless?
-//
 // TODO: Set the default sink after connecting to the device
 
 #[derive(Debug)]
@@ -318,7 +318,7 @@ impl State {
     }
 
     pub fn handle_bluetooth_event(&mut self, event: BluetoothEvent) {
-        println!("BT Event");
+        // println!("BT Event {:?}", event);
         match event {
             BluetoothEvent::Scan(results) => {
                 for result in results {
@@ -385,27 +385,34 @@ async fn main() -> Result<()> {
     let audio_dir =
         std::env::var("AUDIO_DIR").expect("The AUDIO_DIR environment variable has to be set");
 
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::new("oled"))
+        .with_max_level(Level::DEBUG)
+        .init();
+    info!("testing tracing");
+
     let (bt_tx, mut bt_rx) = tokio::sync::mpsc::channel::<BluetoothRequest>(10);
-    println!("[DEBUG] Initalized state");
     let mut state = State::new(audio_dir, bt_tx).unwrap();
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<BluetoothEvent>(10);
     let (tx2, mut rx2) = tokio::sync::mpsc::channel::<String>(10);
 
-    // let bluetooth_task = tokio::spawn(async move {
-    //     let mut bluetooth_manager = BluetoothManager::new(tx, tx2, bt_rx).await.unwrap();
-    //     bluetooth_manager.start_scan().await?;
+    let bluetooth_task = tokio::spawn(async move {
+        debug!("BT Thread");
+        let mut bluetooth_manager = BluetoothManager::new(tx, tx2, bt_rx).await.unwrap();
+        bluetooth_manager.start_scan().await?;
 
-    //     loop {
-    //         bluetooth_manager.process_requests().await?;
-    //         bluetooth_manager.get_devices().await?;
-    //         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    //     }
+        loop {
+            bluetooth_manager.process_requests().await?;
+            bluetooth_manager.get_devices().await?;
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
 
-    //     #[allow(unreachable_code)]
-    //     Ok::<(), anyhow::Error>(())
-    // });
+        #[allow(unreachable_code)]
+        Ok::<(), anyhow::Error>(())
+    });
 
+    debug!("Main loop");
     while state.running {
         while let Ok(event) = rx2.try_recv() {
             //println!("Event: {:#?}", event);
@@ -424,7 +431,7 @@ async fn main() -> Result<()> {
         sleep(Duration::from_millis(50));
     }
 
-    // bluetooth_task.abort();
+    bluetooth_task.abort();
 
     println!("Device initialized!");
     Ok(())

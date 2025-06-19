@@ -3,6 +3,7 @@ use std::{hash::Hash, process::Stdio};
 use anyhow::Result;
 use macaddr::MacAddr6;
 use tokio::process::{Child, Command};
+use tracing::{debug, info};
 
 #[allow(dead_code)]
 #[derive(Debug, Eq, Clone)]
@@ -31,6 +32,7 @@ impl From<ScanResult> for Device {
         Self {
             addr: result.addr,
             name: result.name,
+            // TODO: Populate these
             paired: false,
             trusted: false,
             connected: false,
@@ -62,10 +64,12 @@ impl TryFrom<&str> for ScanResult {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum BluetoothEvent {
     Scan(Vec<Device>),
 }
 
+#[derive(Debug, Clone)]
 pub enum BluetoothRequest {
     Connect(Device),
 }
@@ -105,6 +109,7 @@ impl BluetoothManager {
     }
 
     pub async fn start_scan(&mut self) -> Result<()> {
+        debug!("Before scan");
         if self.scan_process.is_none() {
             Command::new("bluetoothctl")
                 .arg("discoverable")
@@ -119,6 +124,7 @@ impl BluetoothManager {
                 .spawn()?;
             self.scan_process = Some(scan_process);
         }
+        debug!("After scan");
         Ok(())
     }
 
@@ -183,20 +189,30 @@ impl BluetoothManager {
     }
 
     pub async fn connect(&mut self, device: &Device) -> Result<()> {
-        if !device.paired {
-            self.pair(device.addr).await?;
+        info!("Inside connecting");
+        if device.connected {
+            let output = Command::new("bluetoothctl")
+                .arg("disconnect")
+                .arg(device.addr.to_string())
+                .output()
+                .await?;
+            debug!("{}", String::from_utf8_lossy(&output.stdout).to_string());
+            info!("Disconnecting from {:?}", device);
+        } else {
+            if !device.paired {
+                self.pair(device.addr).await?;
+            }
+            if !device.trusted {
+                self.trust(device.addr).await?;
+            }
+            let output = Command::new("bluetoothctl")
+                .arg("connect")
+                .arg(device.addr.to_string())
+                .output()
+                .await?;
+            debug!("{}", String::from_utf8_lossy(&output.stdout).to_string());
+            info!("Connecting to {:?}", device);
         }
-        if !device.trusted {
-            self.trust(device.addr).await?;
-        }
-        let output = Command::new("bluetoothctl")
-            .arg("connect")
-            .arg(device.addr.to_string())
-            .output()
-            .await?;
-        self.log_channel
-            .send(String::from_utf8_lossy(&output.stdout).to_string())
-            .await?;
 
         Ok(())
     }
@@ -207,9 +223,7 @@ impl BluetoothManager {
             .arg(addr.to_string())
             .output()
             .await?;
-        self.log_channel
-            .send(String::from_utf8_lossy(&output.stdout).to_string())
-            .await?;
+        debug!("{}", String::from_utf8_lossy(&output.stdout).to_string());
         Ok(())
     }
 
@@ -219,21 +233,17 @@ impl BluetoothManager {
             .arg(addr.to_string())
             .output()
             .await?;
-        self.log_channel
-            .send(String::from_utf8_lossy(&output.stdout).to_string())
-            .await?;
+        debug!("{}", String::from_utf8_lossy(&output.stdout).to_string());
         Ok(())
     }
 
     pub async fn process_requests(&mut self) -> Result<()> {
+        // This is working!
         while !self.request_channel.is_empty() {
             if let Ok(request) = self.request_channel.try_recv() {
+                info!("Processing {:?}", request);
                 match request {
-                    // TODO: Why dont we get here?
                     BluetoothRequest::Connect(device) => {
-                        self.log_channel
-                            .send(format!("Connecting to {}", device.name))
-                            .await?;
                         self.connect(&device).await?;
                     }
                 }
