@@ -137,25 +137,42 @@ impl BluetoothManager {
     }
 
     pub async fn get_devices(&mut self) -> Result<()> {
-        let all = self.devices("").await?;
-        let paired = self.devices("paired").await?;
-        let trusted = self.devices("trusted").await?;
-        let connected = self.devices("connected").await?;
-
-        let mut devices: Vec<Device> = all.iter().map(|d| Device::from(d.clone())).collect();
-        for result in &paired {
-            if let Some(device) = devices.iter_mut().find(|d| d.addr == result.addr) {
-                device.paired = true;
-            }
-        }
-        for result in &trusted {
-            if let Some(device) = devices.iter_mut().find(|d| d.addr == result.addr) {
-                device.trusted = true;
-            }
-        }
-        for result in &connected {
-            if let Some(device) = devices.iter_mut().find(|d| d.addr == result.addr) {
-                device.connected = true;
+        let all = self.devices().await?;
+        let mut devices: Vec<Device> = all.into_iter().map(|x| x.into()).collect();
+        for d in devices.iter_mut() {
+            let output = Command::new("bluetoothctl")
+                .arg("info")
+                .arg(format!("{}", d.addr))
+                .output()
+                .await?;
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                if line.trim_start().starts_with("Paired:") {
+                    let status = line.split(": ").skip(1).next();
+                    if status == Some("yes") {
+                        d.paired = true;
+                    }
+                    if status == Some("no") {
+                        d.paired = false;
+                    }
+                }
+                if line.trim_start().starts_with("Trusted:") {
+                    let status = line.split(": ").skip(1).next();
+                    if status == Some("yes") {
+                        d.trusted = true;
+                    }
+                    if status == Some("no") {
+                        d.trusted = false;
+                    }
+                }
+                if line.trim_start().starts_with("Connected:") {
+                    let status = line.split(": ").skip(1).next();
+                    if status == Some("yes") {
+                        d.connected = true;
+                    }
+                    if status == Some("no") {
+                        d.connected = false;
+                    }
+                }
             }
         }
 
@@ -165,16 +182,8 @@ impl BluetoothManager {
     }
 
     /// Assumes that scanning is running in the background
-    async fn devices(&mut self, filter: &str) -> Result<Vec<ScanResult>> {
-        let output = if filter.is_empty() {
-            Command::new("bluetoothctl").arg("devices").output().await?
-        } else {
-            Command::new("bluetoothctl")
-                .arg("devices")
-                .arg(filter)
-                .output()
-                .await?
-        };
+    async fn devices(&mut self) -> Result<Vec<ScanResult>> {
+        let output = Command::new("bluetoothctl").arg("devices").output().await?;
         let mut results = vec![];
         for line in String::from_utf8_lossy(&output.stdout).lines() {
             let line = line.trim();

@@ -212,8 +212,18 @@ impl State {
                         BinaryColor::On,
                     );
                 }
+                let mut label: Vec<char> = device.name.chars().take(self.max_len).collect();
+                let label_len = label.len();
+                for _ in 0..(self.max_len - label_len) {
+                    label.push(' ');
+                }
+                label[self.max_len - 3] = if device.connected { 'o' } else { 'x' };
+                label[self.max_len - 2] = if device.trusted { 'o' } else { 'x' };
+                label[self.max_len - 1] = if device.paired { 'o' } else { 'x' };
+                let label: String = label.into_iter().collect();
+
                 let text = Text::new(
-                    &device.name,
+                    &label,
                     Point::new(0, 10 + (i as i32 * self.font_height)),
                     TextStyle::new(&FONT_5x9, text_color),
                 );
@@ -336,14 +346,9 @@ impl State {
     }
 
     pub fn handle_bluetooth_event(&mut self, event: BluetoothEvent) {
-        // println!("BT Event {:?}", event);
         match event {
             BluetoothEvent::Scan(results) => {
-                for result in results {
-                    if !self.has_discovered_device(result.addr) && !result.name.is_empty() {
-                        self.devices.push(Device::from(result));
-                    }
-                }
+                self.devices = results.into_iter().filter(|d| !d.name.is_empty()).collect();
             }
         }
     }
@@ -355,10 +360,6 @@ impl State {
                 error!("MPV Error: {}", err);
             }
         }
-    }
-
-    fn has_discovered_device(&self, addr: MacAddr6) -> bool {
-        self.devices.iter().any(|d| d.addr == addr)
     }
 
     async fn volume_up(&mut self) -> Result<()> {
