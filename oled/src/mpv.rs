@@ -49,7 +49,7 @@ impl MpvManager {
     async fn play(&mut self, path: &Path) -> Result<()> {
         debug!("Playing a new file {:?}", path);
         match Command::new("mpv")
-            .arg("--idle")
+            .arg("--audio-buffer=0.5")
             .arg("--input-ipc-server=/tmp/mpvsocket")
             .arg(path)
             .stdout(Stdio::null())

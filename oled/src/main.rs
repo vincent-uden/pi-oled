@@ -430,6 +430,7 @@ async fn main() -> Result<()> {
     let bluetooth_task = tokio::spawn(async move {
         debug!("BT Thread");
         let mut bluetooth_manager = BluetoothManager::new(tx, tx2, bt_rx).await.unwrap();
+        // Scanning needs to be turned off when we're playing audio
         bluetooth_manager.start_scan().await?;
 
         loop {
