@@ -40,6 +40,74 @@ mkdir github
 cd github
 git clone https://github.com/vincent-uden/pi-oled
 cd pi-oled
-cargo r --bin remote-dev -- server --port 3000
+cargo b --bin oled --release
+chmod -R 777 ./target/release
 
-# TODO: Figure out how to programatically enable SPI using sudo raspi-config
+# --- Systemd Service Setup for pi-oled ---
+SERVICE_NAME="pi-oled.service"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}"
+OLED_EXECUTABLE="/home/${USERNAME}/github/pi-oled/target/release/oled"
+
+echo "Creating systemd service for pi-oled..."
+
+# Check if the executable exists
+if [ ! -f "${OLED_EXECUTABLE}" ]; then
+    echo "Error: OLED executable not found at ${OLED_EXECUTABLE}. Make sure 'cargo build --release' was successful."
+    exit 1
+fi
+
+sudo bash -c "cat > ${SERVICE_FILE}" <<EOF
+[Unit]
+Description=Pi OLED Display Application
+After=network.target # Assuming it might need network, adjust if not.
+After=systemd-user-sessions.service # Might be useful if it interacts with user sessions
+
+[Service]
+ExecStart=${OLED_EXECUTABLE}
+WorkingDirectory=/home/${USERNAME}/github/pi-oled
+StandardOutput=journal
+StandardError=journal
+Restart=always
+User=${USERNAME}
+Group=${USERNAME} # Good practice to specify group too
+Environment=RUST_LOG=info # Example: Set environment variables if needed by the Rust app
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+if [ -f "${SERVICE_FILE}" ]; then
+    echo "Systemd service file created at ${SERVICE_FILE}."
+    echo "Enabling and starting the pi-oled service..."
+    sudo systemctl daemon-reload
+    sudo systemctl enable "${SERVICE_NAME}"
+    sudo systemctl start "${SERVICE_NAME}"
+    echo "pi-oled service enabled and started. Check its status with 'sudo systemctl status ${SERVICE_NAME}'."
+else
+    echo "Error: Failed to create systemd service file."
+    exit 1
+fi
+
+CONFIG_FILE="/boot/config.txt"
+MODULES_FILE="/etc/modules"
+
+# Enable SPI in config.txt
+if ! grep -q "dtparam=spi=on" "$CONFIG_FILE"; then
+  echo "Adding dtparam=spi=on to $CONFIG_FILE..."
+  echo "dtparam=spi=on" >> "$CONFIG_FILE"
+  echo "SPI enabled in $CONFIG_FILE."
+else
+  echo "dtparam=spi=on already present in $CONFIG_FILE."
+fi
+
+# Ensure spi-dev module is loaded
+if ! grep -q "spi-dev" "$MODULES_FILE"; then
+  echo "Adding spi-dev to $MODULES_FILE..."
+  echo "spi-dev" >> "$MODULES_FILE"
+  echo "spi-dev module added to $MODULES_FILE."
+else
+  echo "spi-dev already present in $MODULES_FILE."
+fi
+
+echo "SPI should now be enabled. A reboot is recommended for changes to take effect."
+echo "You can reboot now by running 'sudo reboot'."
