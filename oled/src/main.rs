@@ -65,6 +65,8 @@ pub struct State {
     system_volume: u8,
     track_position: u32,
     track_duration: u32,
+    filename_scroll_offset: usize,
+    filename_scroll_counter: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +132,8 @@ impl State {
             system_volume: 50,
             track_position: 0,
             track_duration: 0,
+            filename_scroll_offset: 0,
+            filename_scroll_counter: 0,
         })
     }
 
@@ -289,12 +293,12 @@ impl State {
 
         if let Some(ref filename) = self.player_status.current_file {
             let display_name = if filename.len() > self.max_len {
-                &filename[0..self.max_len]
+                self.get_scrolling_text(filename)
             } else {
-                filename
+                filename.clone()
             };
             let file_text = Text::new(
-                display_name,
+                &display_name,
                 Point::new(0, 40),
                 TextStyle::new(&FONT_5x9, BinaryColor::On),
             );
@@ -313,6 +317,8 @@ impl State {
         if let Ok(volume) = self.get_system_volume().await {
             self.system_volume = volume;
         }
+
+        self.update_filename_scroll();
         match self.open_tab {
             Tab::Files => {
                 if self.joystick.just_switched_to(joystick::State::Left) {
@@ -377,6 +383,21 @@ impl State {
                 }
                 if self.joystick.just_switched_to(joystick::State::Right) {
                     self.open_tab = Tab::Files;
+                }
+                if self.joystick.just_switched_to(joystick::State::Up) {
+                    if let Err(e) = self.volume_up().await {
+                        error!("Failed to increase volume: {}", e);
+                    }
+                }
+                if self.joystick.just_switched_to(joystick::State::Down) {
+                    if let Err(e) = self.volume_down().await {
+                        error!("Failed to decrease volume: {}", e);
+                    }
+                }
+                if self.buttons.is_button_pressed(Button::B1) {
+                    if let Err(e) = self.mpv_channel.try_send(MpvRequest::TogglePause) {
+                        error!("Failed to send TogglePause request: {}", e);
+                    }
                 }
             }
         }
@@ -447,6 +468,10 @@ impl State {
                 duration,
                 filename,
             } => {
+                if self.player_status.current_file != filename {
+                    self.filename_scroll_offset = 0;
+                    self.filename_scroll_counter = 0;
+                }
                 self.player_status.is_playing = is_playing;
                 self.player_status.current_file = filename;
                 self.track_position = position;
@@ -472,6 +497,49 @@ impl State {
             }
         }
         Ok(50)
+    }
+
+    fn get_scrolling_text(&self, text: &str) -> String {
+        if text.len() <= self.max_len {
+            return text.to_string();
+        }
+
+        let extended_text = format!("{} --- ", text);
+        let total_len = extended_text.len();
+        
+        if self.filename_scroll_offset >= total_len {
+            return extended_text[0..self.max_len].to_string();
+        }
+
+        let end_pos = (self.filename_scroll_offset + self.max_len).min(total_len);
+        let mut result = extended_text[self.filename_scroll_offset..end_pos].to_string();
+        
+        if result.len() < self.max_len {
+            let remaining = self.max_len - result.len();
+            let wrap_text = &extended_text[0..remaining.min(total_len)];
+            result.push_str(wrap_text);
+        }
+        
+        result
+    }
+
+    fn update_filename_scroll(&mut self) {
+        if let Some(ref filename) = self.player_status.current_file {
+            if filename.len() > self.max_len {
+                self.filename_scroll_counter += 1;
+                if self.filename_scroll_counter >= 15 {
+                    self.filename_scroll_counter = 0;
+                    self.filename_scroll_offset += 1;
+                    let extended_len = filename.len() + 5;
+                    if self.filename_scroll_offset >= extended_len {
+                        self.filename_scroll_offset = 0;
+                    }
+                }
+            } else {
+                self.filename_scroll_offset = 0;
+                self.filename_scroll_counter = 0;
+            }
+        }
     }
 
     async fn volume_up(&mut self) -> Result<()> {

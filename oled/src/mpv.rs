@@ -19,6 +19,7 @@ pub enum MpvEvent {
 pub enum MpvRequest {
     Play(PathBuf),
     GetStatus,
+    TogglePause,
 }
 
 pub struct MpvManager {
@@ -50,6 +51,9 @@ impl MpvManager {
                 }
                 MpvRequest::GetStatus => {
                     self.get_status().await?;
+                }
+                MpvRequest::TogglePause => {
+                    self.toggle_pause().await?;
                 }
             };
         }
@@ -171,6 +175,18 @@ impl MpvManager {
             debug!("Failed to send status update: {}", e);
         }
 
+        Ok(())
+    }
+
+    async fn toggle_pause(&self) -> Result<()> {
+        if self.mpv_process.is_some() {
+            debug!("Toggling pause state");
+            let _output = Command::new("bash")
+                .arg("-c")
+                .arg("echo '{ \"command\": [\"cycle\", \"pause\"] }' | socat - /tmp/mpvsocket")
+                .output()
+                .await?;
+        }
         Ok(())
     }
 }
