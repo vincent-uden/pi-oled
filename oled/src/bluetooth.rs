@@ -72,7 +72,6 @@ pub enum BluetoothEvent {
 #[derive(Debug, Clone)]
 pub enum BluetoothRequest {
     Connect(Device),
-    Disconnect(Device),
 }
 
 #[derive(Debug)]
@@ -208,6 +207,7 @@ impl BluetoothManager {
                 .await?;
             debug!("{}", String::from_utf8_lossy(&output.stdout).to_string());
             info!("Disconnecting from {:?}", device);
+            self.start_scan().await?;
         } else {
             if !device.paired {
                 self.pair(device.addr).await?;
@@ -222,6 +222,7 @@ impl BluetoothManager {
                 .await?;
             debug!("{}", String::from_utf8_lossy(&output.stdout).to_string());
             info!("Connecting to {:?}", device);
+            self.stop_scan().await?;
         }
 
         Ok(())
@@ -255,21 +256,12 @@ impl BluetoothManager {
                 match request {
                     BluetoothRequest::Connect(device) => {
                         self.connect(&device).await?;
-                        self.stop_scan().await?;
-                    }
-                    BluetoothRequest::Disconnect(device) => {
-                        self.disconnect(&device).await?;
-                        self.start_scan().await?;
                     }
                 }
             }
         }
 
         Ok(())
-    }
-
-    async fn disconnect(&self, device: &Device) -> _ {
-        todo!()
     }
 }
 

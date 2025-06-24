@@ -10,6 +10,8 @@
 - **Lint**: `cargo clippy`
 - **Format**: `cargo fmt`
 
+Always use `cargo check` before `cargo build` to check for easy-to-catch build errors.
+
 ## Project Structure
 - `oled/`: Main Pi OLED display application (Raspberry Pi hardware interface)
 - `remote-dev/`: Remote development server/client for cross-compilation deployment
