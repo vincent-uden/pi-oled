@@ -266,7 +266,7 @@ impl State {
 
                 let text = Text::new(
                     &label,
-                    Point::new(0, 10 + (i as i32 * self.font_height)),
+                    Point::new(0, 10 + ((i as i32 - self.bt_scroll) * self.font_height)),
                     TextStyle::new(&FONT_5x9, text_color),
                 );
                 text.draw(&mut self.display).unwrap();
@@ -405,6 +405,18 @@ impl State {
                     self.bt_channel
                         .send(BluetoothRequest::Connect(device.clone()))
                         .await?;
+                }
+                if self.buttons.is_button_pressed(Button::B2)
+                    && !self.devices.is_empty()
+                    && (self.bt_cursor as usize) < self.devices.len()
+                {
+                    let device = &self.devices[self.bt_cursor as usize];
+                    if device.paired {
+                        println!("Sending Unpair request for {}", device.name);
+                        self.bt_channel
+                            .send(BluetoothRequest::Unpair(device.clone()))
+                            .await?;
+                    }
                 }
             }
             Tab::Player => {
@@ -633,14 +645,18 @@ impl State {
     }
 
     async fn toggle_wifi(&mut self) -> Result<()> {
-        let command = if self.wifi_enabled { "block" } else { "unblock" };
+        let command = if self.wifi_enabled {
+            "block"
+        } else {
+            "unblock"
+        };
         Command::new("rfkill")
             .arg(command)
             .arg("wifi")
             .spawn()?
             .wait()
             .await?;
-        
+
         self.wifi_enabled = !self.wifi_enabled;
         Ok(())
     }

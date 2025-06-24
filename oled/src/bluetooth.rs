@@ -72,6 +72,7 @@ pub enum BluetoothEvent {
 #[derive(Debug, Clone)]
 pub enum BluetoothRequest {
     Connect(Device),
+    Unpair(Device),
     StopScan,
 }
 
@@ -249,6 +250,29 @@ impl BluetoothManager {
         Ok(())
     }
 
+    pub async fn unpair(&mut self, device: &Device) -> Result<()> {
+        if device.connected {
+            let output = Command::new("bluetoothctl")
+                .arg("disconnect")
+                .arg(device.addr.to_string())
+                .output()
+                .await?;
+            debug!("{}", String::from_utf8_lossy(&output.stdout).to_string());
+            info!("Disconnecting from {:?} before unpair", device);
+        }
+
+        let output = Command::new("bluetoothctl")
+            .arg("remove")
+            .arg(device.addr.to_string())
+            .output()
+            .await?;
+        debug!("{}", String::from_utf8_lossy(&output.stdout).to_string());
+        info!("Unpaired device {:?}", device);
+        
+        self.start_scan().await?;
+        Ok(())
+    }
+
     pub async fn process_requests(&mut self) -> Result<()> {
         // This is working!
         while !self.request_channel.is_empty() {
@@ -257,6 +281,9 @@ impl BluetoothManager {
                 match request {
                     BluetoothRequest::Connect(device) => {
                         self.connect(&device).await?;
+                    }
+                    BluetoothRequest::Unpair(device) => {
+                        self.unpair(&device).await?;
                     }
                     BluetoothRequest::StopScan => {
                         self.stop_scan().await?;
