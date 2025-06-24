@@ -337,6 +337,9 @@ impl State {
                 if self.buttons.is_button_pressed(Button::B1) {
                     if let Some(file) = self.audio_files.get(self.file_cursor as usize) {
                         info!("B1 pressed - loading file: {:?}", file);
+                        if let Err(e) = self.bt_channel.try_send(BluetoothRequest::StopScan) {
+                            error!("Failed to send StopScan request: {}", e);
+                        }
                         if let Err(e) = self.mpv_channel.try_send(MpvRequest::Play(file.clone())) {
                             error!("Failed to send LoadFile request: {}", e);
                         }
@@ -486,7 +489,7 @@ impl State {
             .arg("@DEFAULT_SINK@")
             .output()
             .await?;
-        
+
         let output_str = String::from_utf8_lossy(&output.stdout);
         if let Some(volume_line) = output_str.lines().next() {
             if let Some(percent_pos) = volume_line.find('%') {
@@ -506,20 +509,20 @@ impl State {
 
         let extended_text = format!("{} --- ", text);
         let total_len = extended_text.len();
-        
+
         if self.filename_scroll_offset >= total_len {
             return extended_text[0..self.max_len].to_string();
         }
 
         let end_pos = (self.filename_scroll_offset + self.max_len).min(total_len);
         let mut result = extended_text[self.filename_scroll_offset..end_pos].to_string();
-        
+
         if result.len() < self.max_len {
             let remaining = self.max_len - result.len();
             let wrap_text = &extended_text[0..remaining.min(total_len)];
             result.push_str(wrap_text);
         }
-        
+
         result
     }
 

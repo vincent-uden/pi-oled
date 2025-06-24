@@ -72,6 +72,7 @@ pub enum BluetoothEvent {
 #[derive(Debug, Clone)]
 pub enum BluetoothRequest {
     Connect(Device),
+    StopScan,
 }
 
 #[derive(Debug)]
@@ -256,6 +257,9 @@ impl BluetoothManager {
                 match request {
                     BluetoothRequest::Connect(device) => {
                         self.connect(&device).await?;
+                    }
+                    BluetoothRequest::StopScan => {
+                        self.stop_scan().await?;
                     }
                 }
             }
