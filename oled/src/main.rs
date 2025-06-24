@@ -38,6 +38,7 @@ pub enum Tab {
     Files,
     Network,
     Bluetooth,
+    Player,
 }
 
 pub struct State {
@@ -120,12 +121,14 @@ impl State {
             Tab::Files => self.draw_files_tab(),
             Tab::Network => self.draw_network_tab(),
             Tab::Bluetooth => self.draw_bluetooth_tab(),
+            Tab::Player => self.draw_player_tab(),
         }
 
         let label = match self.open_tab {
             Tab::Files => "Files",
             Tab::Network => "Network",
             Tab::Bluetooth => "Bluetooth",
+            Tab::Player => "Player",
         };
         // Centered text
         let tab_text = Text::new(
@@ -232,6 +235,22 @@ impl State {
         }
     }
 
+    fn draw_player_tab(&mut self) {
+        let placeholder_text = Text::new(
+            "Player Info",
+            Point::new(0, 10),
+            TextStyle::new(&FONT_5x9, BinaryColor::On),
+        );
+        placeholder_text.draw(&mut self.display).unwrap();
+
+        let status_text = Text::new(
+            "Ready for details",
+            Point::new(0, 20),
+            TextStyle::new(&FONT_5x9, BinaryColor::On),
+        );
+        status_text.draw(&mut self.display).unwrap();
+    }
+
     pub async fn update(&mut self) -> Result<()> {
         self.buttons.update().unwrap();
         self.joystick.update().unwrap();
@@ -242,7 +261,7 @@ impl State {
         match self.open_tab {
             Tab::Files => {
                 if self.joystick.just_switched_to(joystick::State::Left) {
-                    self.open_tab = Tab::Bluetooth;
+                    self.open_tab = Tab::Player;
                 }
                 if self.joystick.just_switched_to(joystick::State::Right) {
                     self.open_tab = Tab::Network;
@@ -281,7 +300,7 @@ impl State {
                     self.open_tab = Tab::Network;
                 }
                 if self.joystick.just_switched_to(joystick::State::Right) {
-                    self.open_tab = Tab::Files;
+                    self.open_tab = Tab::Player;
                 }
                 if self.joystick.just_switched_to(joystick::State::Up) {
                     self.move_bt_cursor(-1);
@@ -295,6 +314,14 @@ impl State {
                     self.bt_channel
                         .send(BluetoothRequest::Connect(device.clone()))
                         .await?;
+                }
+            }
+            Tab::Player => {
+                if self.joystick.just_switched_to(joystick::State::Left) {
+                    self.open_tab = Tab::Bluetooth;
+                }
+                if self.joystick.just_switched_to(joystick::State::Right) {
+                    self.open_tab = Tab::Files;
                 }
             }
         }
