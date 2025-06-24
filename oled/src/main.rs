@@ -67,6 +67,7 @@ pub struct State {
     track_duration: u32,
     filename_scroll_offset: usize,
     filename_scroll_counter: u32,
+    wifi_enabled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +135,7 @@ impl State {
             track_duration: 0,
             filename_scroll_offset: 0,
             filename_scroll_counter: 0,
+            wifi_enabled: true,
         })
     }
 
@@ -217,6 +219,22 @@ impl State {
             TextStyle::new(&FONT_5x9, BinaryColor::On),
         );
         ip_text.draw(&mut self.display).unwrap();
+
+        let wifi_status = if self.wifi_enabled { "ON" } else { "OFF" };
+        let wifi_label = format!("WiFi: {}", wifi_status);
+        let wifi_text = Text::new(
+            &wifi_label,
+            Point::new(0, 20),
+            TextStyle::new(&FONT_5x9, BinaryColor::On),
+        );
+        wifi_text.draw(&mut self.display).unwrap();
+
+        let instruction_text = Text::new(
+            "B1: Toggle WiFi",
+            Point::new(0, 40),
+            TextStyle::new(&FONT_5x9, BinaryColor::On),
+        );
+        instruction_text.draw(&mut self.display).unwrap();
     }
 
     fn draw_bluetooth_tab(&mut self) {
@@ -318,6 +336,10 @@ impl State {
             self.system_volume = volume;
         }
 
+        if let Ok(wifi_status) = self.get_wifi_status().await {
+            self.wifi_enabled = wifi_status;
+        }
+
         self.update_filename_scroll();
         match self.open_tab {
             Tab::Files => {
@@ -357,6 +379,11 @@ impl State {
                 }
                 if self.joystick.just_switched_to(joystick::State::Right) {
                     self.open_tab = Tab::Bluetooth;
+                }
+                if self.buttons.is_button_pressed(Button::B1) {
+                    if let Err(e) = self.toggle_wifi().await {
+                        error!("Failed to toggle WiFi: {}", e);
+                    }
                 }
             }
             Tab::Bluetooth => {
@@ -586,6 +613,35 @@ impl State {
             .spawn()?
             .wait()
             .await?;
+        Ok(())
+    }
+
+    async fn get_wifi_status(&self) -> Result<bool> {
+        let output = Command::new("rfkill")
+            .arg("list")
+            .arg("wifi")
+            .output()
+            .await?;
+
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        for line in output_str.lines() {
+            if line.contains("Soft blocked:") {
+                return Ok(!line.contains("yes"));
+            }
+        }
+        Ok(true)
+    }
+
+    async fn toggle_wifi(&mut self) -> Result<()> {
+        let command = if self.wifi_enabled { "block" } else { "unblock" };
+        Command::new("rfkill")
+            .arg(command)
+            .arg("wifi")
+            .spawn()?
+            .wait()
+            .await?;
+        
+        self.wifi_enabled = !self.wifi_enabled;
         Ok(())
     }
 }
