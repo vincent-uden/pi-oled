@@ -61,6 +61,16 @@ pub struct State {
     bt_cursor: i32,
     bt_channel: tokio::sync::mpsc::Sender<BluetoothRequest>,
     mpv_channel: tokio::sync::mpsc::Sender<MpvRequest>,
+    player_status: PlayerStatus,
+    system_volume: u8,
+    track_position: u32,
+    track_duration: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlayerStatus {
+    pub is_playing: bool,
+    pub current_file: Option<String>,
 }
 
 fn files_in_dir(dir: &Path) -> Vec<PathBuf> {
@@ -113,6 +123,13 @@ impl State {
             bt_cursor: 0,
             bt_channel,
             mpv_channel,
+            player_status: PlayerStatus {
+                is_playing: false,
+                current_file: None,
+            },
+            system_volume: 50,
+            track_position: 0,
+            track_duration: 0,
         })
     }
 
@@ -236,19 +253,53 @@ impl State {
     }
 
     fn draw_player_tab(&mut self) {
-        let placeholder_text = Text::new(
-            "Player Info",
+        let status = if self.player_status.is_playing {
+            "Playing"
+        } else {
+            "Paused"
+        };
+        let status_text = Text::new(
+            status,
             Point::new(0, 10),
             TextStyle::new(&FONT_5x9, BinaryColor::On),
         );
-        placeholder_text.draw(&mut self.display).unwrap();
+        status_text.draw(&mut self.display).unwrap();
 
-        let status_text = Text::new(
-            "Ready for details",
+        let volume_label = format!("Vol: {}%", self.system_volume);
+        let volume_text = Text::new(
+            &volume_label,
             Point::new(0, 20),
             TextStyle::new(&FONT_5x9, BinaryColor::On),
         );
-        status_text.draw(&mut self.display).unwrap();
+        volume_text.draw(&mut self.display).unwrap();
+
+        if self.track_duration > 0 {
+            let pos_min = self.track_position / 60;
+            let pos_sec = self.track_position % 60;
+            let dur_min = self.track_duration / 60;
+            let dur_sec = self.track_duration % 60;
+            let progress_label = format!("{}:{:02} / {}:{:02}", pos_min, pos_sec, dur_min, dur_sec);
+            let progress_text = Text::new(
+                &progress_label,
+                Point::new(0, 30),
+                TextStyle::new(&FONT_5x9, BinaryColor::On),
+            );
+            progress_text.draw(&mut self.display).unwrap();
+        }
+
+        if let Some(ref filename) = self.player_status.current_file {
+            let display_name = if filename.len() > self.max_len {
+                &filename[0..self.max_len]
+            } else {
+                filename
+            };
+            let file_text = Text::new(
+                display_name,
+                Point::new(0, 40),
+                TextStyle::new(&FONT_5x9, BinaryColor::On),
+            );
+            file_text.draw(&mut self.display).unwrap();
+        }
     }
 
     pub async fn update(&mut self) -> Result<()> {
@@ -257,6 +308,10 @@ impl State {
         if self.buttons.is_button_pressed(Button::B3) {
             self.running = false;
             return Ok(());
+        }
+
+        if let Ok(volume) = self.get_system_volume().await {
+            self.system_volume = volume;
         }
         match self.open_tab {
             Tab::Files => {
@@ -386,7 +441,37 @@ impl State {
             MpvEvent::Error(err) => {
                 error!("MPV Error: {}", err);
             }
+            MpvEvent::StatusUpdate {
+                is_playing,
+                position,
+                duration,
+                filename,
+            } => {
+                self.player_status.is_playing = is_playing;
+                self.player_status.current_file = filename;
+                self.track_position = position;
+                self.track_duration = duration;
+            }
         }
+    }
+
+    async fn get_system_volume(&mut self) -> Result<u8> {
+        let output = Command::new("pactl")
+            .arg("get-sink-volume")
+            .arg("@DEFAULT_SINK@")
+            .output()
+            .await?;
+        
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        if let Some(volume_line) = output_str.lines().next() {
+            if let Some(percent_pos) = volume_line.find('%') {
+                let start = volume_line[..percent_pos].rfind(' ').unwrap_or(0) + 1;
+                if let Ok(volume) = volume_line[start..percent_pos].parse::<u8>() {
+                    return Ok(volume);
+                }
+            }
+        }
+        Ok(50)
     }
 
     async fn volume_up(&mut self) -> Result<()> {
@@ -497,6 +582,7 @@ async fn main() -> Result<()> {
     });
 
     debug!("Main loop");
+    let mut status_counter = 0u32;
     while state.running {
         while let Ok(event) = rx2.try_recv() {
             //println!("Event: {:#?}", event);
@@ -509,6 +595,14 @@ async fn main() -> Result<()> {
         while let Ok(event) = mpv_event_rx.try_recv() {
             state.handle_mpv_event(event);
         }
+
+        status_counter += 1;
+        if status_counter % 20 == 0 {
+            if let Err(e) = state.mpv_channel.try_send(MpvRequest::GetStatus) {
+                debug!("Failed to send GetStatus request: {}", e);
+            }
+        }
+
         // TODO: Move to a diff-based rendering to avoid unnecessary pixel updates
         state.display.fill(BinaryColor::Off);
         state.update().await?;

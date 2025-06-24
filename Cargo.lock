@@ -988,6 +988,7 @@ dependencies = [
  "local-ip-address",
  "macaddr",
  "rppal",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-log",

@@ -7,11 +7,18 @@ use tracing::{debug, error, info, warn};
 #[derive(Debug, Clone)]
 pub enum MpvEvent {
     Error(String),
+    StatusUpdate {
+        is_playing: bool,
+        position: u32,
+        duration: u32,
+        filename: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum MpvRequest {
     Play(PathBuf),
+    GetStatus,
 }
 
 pub struct MpvManager {
@@ -40,6 +47,9 @@ impl MpvManager {
             match request {
                 MpvRequest::Play(path_buf) => {
                     self.toggle_play_pause(&path_buf).await?;
+                }
+                MpvRequest::GetStatus => {
+                    self.get_status().await?;
                 }
             };
         }
@@ -106,6 +116,62 @@ impl MpvManager {
             error!("MPV command failed: {}", error_msg);
             Err(anyhow!("MPV command failed: {}", error_msg))
         }
+    }
+
+    async fn get_status(&self) -> Result<()> {
+        if self.mpv_process.is_none() {
+            return Ok(());
+        }
+
+        let mut is_playing = false;
+        let mut position = 0u32;
+        let mut duration = 0u32;
+        let mut filename: Option<String> = None;
+
+        if let Ok(pause_response) = self.send_command(r#"{ "command": ["get_property", "pause"] }"#).await {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&pause_response) {
+                if let Some(data) = parsed.get("data") {
+                    is_playing = !data.as_bool().unwrap_or(true);
+                }
+            }
+        }
+
+        if let Ok(pos_response) = self.send_command(r#"{ "command": ["get_property", "time-pos"] }"#).await {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&pos_response) {
+                if let Some(data) = parsed.get("data") {
+                    position = data.as_f64().unwrap_or(0.0) as u32;
+                }
+            }
+        }
+
+        if let Ok(dur_response) = self.send_command(r#"{ "command": ["get_property", "duration"] }"#).await {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&dur_response) {
+                if let Some(data) = parsed.get("data") {
+                    duration = data.as_f64().unwrap_or(0.0) as u32;
+                }
+            }
+        }
+
+        if let Ok(file_response) = self.send_command(r#"{ "command": ["get_property", "filename"] }"#).await {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&file_response) {
+                if let Some(data) = parsed.get("data") {
+                    filename = data.as_str().map(|s| s.to_string());
+                }
+            }
+        }
+
+        let event = MpvEvent::StatusUpdate {
+            is_playing,
+            position,
+            duration,
+            filename,
+        };
+
+        if let Err(e) = self.event_channel.try_send(event) {
+            debug!("Failed to send status update: {}", e);
+        }
+
+        Ok(())
     }
 }
 
